@@ -1,0 +1,112 @@
+setwd("C:/wine")
+library(tree)
+library(h2o)
+train <- read.csv('wine.csv', header=T)
+str(train)
+#train$LabelAppeal <- as.factor(train$LabelAppeal)
+#train$STARS <- as.factor(train$STARS)
+#addNA(train$STARS)
+#levels(train$STARS)
+train_tmp <- train[,-c(which(names(train) == "ï..INDEX"), which(names(train) == "TARGET"))]
+train_tmp[1,]
+str(train_tmp)
+names(train_tmp)
+
+test <- read.csv('wine_test.csv', header=T)
+#test$LabelAppeal <- as.factor(test$LabelAppeal)
+#test$STARS <- as.factor(test$STARS)
+#addNA(test$STARS)
+test_tmp <- test[,-c(which(names(test) == "ï..INDEX"), which(names(test) == "TARGET"))]
+test_tmp[1,]
+str(test_tmp)
+names(test_tmp)
+
+# Imputing Missing Values,..
+num_cols <- ncol(train_tmp)
+impute_cols <- which(colSums(apply(train_tmp,2,is.na)) != 0)
+for (i in (1:length(impute_cols))) {
+  print(c('Imputing: ', names(train_tmp[impute_cols[i]])))
+  trn_missing_idx <- which(is.na(train_tmp[,impute_cols[i]]) == T)
+  tst_missing_idx <- which(is.na(test_tmp[,impute_cols[i]]) == T)
+  
+  tree_model <- tree(train_tmp[,impute_cols[i]] ~., data=train_tmp[,(1:num_cols)])
+  
+  train_tmp[trn_missing_idx,impute_cols[i]] <- 
+    predict(tree_model, newdata = train_tmp[trn_missing_idx,])
+  
+  train_tmp[,c(paste(names(train_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 0
+  train_tmp[trn_missing_idx,c(paste(names(train_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 1
+  
+  test_tmp[tst_missing_idx,impute_cols[i]] <- 
+    predict(tree_model, newdata = test_tmp[tst_missing_idx,])
+  
+  test_tmp[,c(paste(names(test_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 0
+  test_tmp[tst_missing_idx,c(paste(names(test_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 1
+}
+train_tmp$TARGET <- train$TARGET
+train_tmp$STARS <- round(train_tmp$STARS,0)
+colnames(train_tmp)[colSums(is.na(train_tmp)) > 0] # find names of columns with NA 
+test_tmp$STARS <- round(test_tmp$STARS,0)
+
+quantile(train_tmp$Alcohol, c(0.01,0.99)) # use this to get p1 and p99 for all variables
+
+# Variable Transformations,.. Train
+train_tmp[(train_tmp$Alcohol > 20.2),c("Alcohol")] <- 20.2
+train_tmp[(train_tmp$Alcohol < 0.2),c("Alcohol")] <- 0.2
+train_tmp[(train_tmp$Chlorides > .952),c("Chlorides")] <- .952
+train_tmp[(train_tmp$Chlorides < 0.848),c("Chlorides")] <- 0.848
+train_tmp[(train_tmp$ResidualSugar > 96.912),c("ResidualSugar")] <- 96.912
+train_tmp[(train_tmp$ResidualSugar < -89.036),c("ResidualSugar")] <- -89.036
+train_tmp[(train_tmp$Sulphates > 3.09),c("Sulphates")] <- 3.09
+train_tmp[(train_tmp$Sulphates < -2.0706),c("Sulphates")] <- -2.0706
+train_tmp[(train_tmp$pH > 5.1106),c("pH")] <- 5.1106
+train_tmp[(train_tmp$pH < 1.33),c("pH")] <- 1.33
+train_tmp[(train_tmp$TotalSulfurDioxide > 744.12 ),c("TotalSulfurDioxide")] <- 744.12 
+train_tmp[(train_tmp$TotalSulfurDioxide < -515.06),c("TotalSulfurDioxide")] <- -515.06
+train_tmp[(train_tmp$AcidIndex > 13 ),c("AcidIndex")] <- 13 
+train_tmp[(train_tmp$AcidIndex < 6),c("AcidIndex")] <- 6
+train_tmp[(train_tmp$CitricAcid >  2.66 ),c("CitricAcid")] <-  2.66 
+train_tmp[(train_tmp$CitricAcid < -2.18),c("CitricAcid")] <- -2.18
+train_tmp[(train_tmp$Density >  1.0693588 ),c("Density")] <- 1.0693588 
+train_tmp[(train_tmp$Density < 0.9169316),c("Density")] <- 0.9169316
+train_tmp[(train_tmp$FixedAcidity >  24.306  ),c("FixedAcidity")] <-  24.306  
+train_tmp[(train_tmp$FixedAcidity < -10.9),c("FixedAcidity")] <- -10.9
+train_tmp[(train_tmp$VolatileAcidity >  2.5806 ),c("VolatileAcidity")] <-  2.5806  
+train_tmp[(train_tmp$VolatileAcidity < -1.8509),c("VolatileAcidity")] <- -1.8509
+
+# Variable Transformations,.. Test
+test_tmp[(test_tmp$Alcohol > 20.2),c("Alcohol")] <- 20.2
+test_tmp[(test_tmp$Alcohol < 0.2),c("Alcohol")] <- 0.2
+test_tmp[(test_tmp$Chlorides > .952),c("Chlorides")] <- .952
+test_tmp[(test_tmp$Chlorides < 0.848),c("Chlorides")] <- 0.848
+test_tmp[(test_tmp$ResidualSugar > 96.912),c("ResidualSugar")] <- 96.912
+test_tmp[(test_tmp$ResidualSugar < -89.036),c("ResidualSugar")] <- -89.036
+test_tmp[(test_tmp$Sulphates > 3.09),c("Sulphates")] <- 3.09
+test_tmp[(test_tmp$Sulphates < -2.0706),c("Sulphates")] <- -2.0706
+test_tmp[(test_tmp$pH > 5.1106),c("pH")] <- 5.1106
+test_tmp[(test_tmp$pH < 1.33),c("pH")] <- 1.33
+test_tmp[(test_tmp$TotalSulfurDioxide > 744.12 ),c("TotalSulfurDioxide")] <- 744.12 
+test_tmp[(test_tmp$TotalSulfurDioxide < -515.06),c("TotalSulfurDioxide")] <- -515.06
+test_tmp[(test_tmp$AcidIndex > 13 ),c("AcidIndex")] <- 13 
+test_tmp[(test_tmp$AcidIndex < 6),c("AcidIndex")] <- 6
+test_tmp[(test_tmp$CitricAcid >  2.66 ),c("CitricAcid")] <-  2.66 
+test_tmp[(test_tmp$CitricAcid < -2.18),c("CitricAcid")] <- -2.18
+test_tmp[(test_tmp$Density >  1.0693588 ),c("Density")] <- 1.0693588 
+test_tmp[(test_tmp$Density < 0.9169316),c("Density")] <- 0.9169316
+test_tmp[(test_tmp$FixedAcidity >  24.306  ),c("FixedAcidity")] <-  24.306  
+test_tmp[(test_tmp$FixedAcidity < -10.9),c("FixedAcidity")] <- -10.9
+test_tmp[(test_tmp$VolatileAcidity >  2.5806 ),c("VolatileAcidity")] <-  2.5806  
+test_tmp[(test_tmp$VolatileAcidity < -1.8509),c("VolatileAcidity")] <- -1.8509
+
+# Variable Selection
+model <- glm(formula= TARGET ~ ., data=train_tmp, family="poisson")
+var_sel <- step(model, direction="both")
+
+#Predict for the Test set
+test$TARGET <- predict(model, test_tmp, type="response")
+
+
+sub <- test[,(1:2)]
+test[1,]
+names(sub) <- c('INDEX','P_TARGET')
+write.table(sub,"wine_poisson_R.csv",sep=',',col.names=T,row.names=F)
