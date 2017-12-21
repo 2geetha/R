@@ -1,0 +1,48 @@
+
+train=read.csv("C:/TimeSeriesAnalysis/Train.csv")
+test=read.csv("C:/TimeSeriesAnalysis/Test.csv")
+
+require(xts)
+require(forecast)
+
+time_index_train <- seq(from = as.POSIXct("2012-08-25 00:00"), 
+                  to = as.POSIXct("2014-09-25 23:00"), by = "hour")
+train$year <- as.factor(substr(train$Datetime,7,10))
+train$mo <- as.factor(substr(train$Datetime,4,5))
+train$dt <- as.factor(substr(train$Datetime,1,2))
+train$ts_hourly<- ts(train$Count)
+train$xts_hourly <- xts(train$Count, order.by = time_index)
+
+time_index_test <- seq(from = as.POSIXct("2014-09-26 00:00"), 
+                        to = as.POSIXct("2015-04-26 23:00"), by = "hour")
+test$year <- as.factor(substr(test$Datetime,7,10))
+test$mo <- as.factor(substr(test$Datetime,4,5))
+test$dt <- as.factor(substr(test$Datetime,1,2))
+
+#EDA
+plot(train$Count~train$year)
+plot(train$Count~train$mo)
+plot(train$Count~train$dt)
+plot(train$ts_hourly)
+
+#ETS
+fitETS = ets(train$ts_hourly)
+forecastETS<- forecast(fitETS, h=5112)
+plot(train$ts_hourly, xlim=c(0,25000))
+lines(forecastETS$mean, col="blue")
+
+#ARIMA with reg
+xregfit    <- cbind(year=train$year, mo= train$mo)
+xregfcast   <- cbind(year=test$year, mo= test$mo)
+fitAutoArima = auto.arima(train$ts_hourly, xreg=xregfit)
+forecastArima <- forecast(fitAutoArima, xreg=xregfcast)
+plot(train$ts_hourly)
+lines(forecastArima$mean, col="blue")
+
+#ANN
+require(caret)
+fitANN <- nnetar(train$ts_hourly,xreg=xregfit, MaxNWts=1100)
+forecastANN <- forecast(fitANN, xreg=xregfcast)
+plot(train$ts_hourly,xlim=c(0,25000))
+lines(forecastANN$mean, col="blue")
+
