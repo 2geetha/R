@@ -1,0 +1,80 @@
+setwd("C:/Insurance")
+library(sqldf)
+library(tree)
+train <- read.csv('logit_insurance.csv', header=T)
+train_tmp <- train[,-c(which(names(train) == "INDEX"), which(names(train) == "TARGET_FLAG"),which(names(train) == "TARGET_AMT"))]
+train_tmp[3,]
+
+train_tmp$INCOME <- as.character(train_tmp$INCOME)
+train_tmp$INCOME <-gsub("[][$,]", "",train_tmp$INCOME )
+train_tmp$INCOME <- as.numeric(train_tmp$INCOME)
+train_tmp$HOME_VAL <- as.character(train_tmp$HOME_VAL)
+train_tmp$HOME_VAL <-gsub("[][$,]", "",train_tmp$HOME_VAL )
+train_tmp$HOME_VAL <- as.numeric(train_tmp$HOME_VAL)
+train_tmp$BLUEBOOK <- as.character(train_tmp$BLUEBOOK)
+train_tmp$BLUEBOOK <-gsub("[][$,]", "",train_tmp$BLUEBOOK )
+train_tmp$BLUEBOOK <- as.numeric(train_tmp$BLUEBOOK)
+train_tmp$OLDCLAIM <- as.character(train_tmp$OLDCLAIM)
+train_tmp$OLDCLAIM <-gsub("[][$,]", "",train_tmp$OLDCLAIM )
+train_tmp$OLDCLAIM <- as.numeric(train_tmp$OLDCLAIM)
+
+test <- read.csv('logit_insurance_test.csv', header=T)
+test_tmp <- test[,-c(which(names(test) == "INDEX"), which(names(test) == "TARGET_FLAG"),which(names(train) == "TARGET_AMT"))]
+test_tmp[3,]
+
+test_tmp$INCOME <- as.character(test_tmp$INCOME)
+test_tmp$INCOME <-gsub("[][$,]", "",test_tmp$INCOME )
+test_tmp$INCOME <- as.numeric(test_tmp$INCOME)
+test_tmp$HOME_VAL <- as.character(test_tmp$HOME_VAL)
+test_tmp$HOME_VAL <-gsub("[][$,]", "",test_tmp$HOME_VAL )
+test_tmp$HOME_VAL <- as.numeric(test_tmp$HOME_VAL)
+test_tmp$BLUEBOOK <- as.character(test_tmp$BLUEBOOK)
+test_tmp$BLUEBOOK <-gsub("[][$,]", "",test_tmp$BLUEBOOK )
+test_tmp$BLUEBOOK <- as.numeric(test_tmp$BLUEBOOK)
+test_tmp$OLDCLAIM <- as.character(test_tmp$OLDCLAIM)
+test_tmp$OLDCLAIM <-gsub("[][$,]", "",test_tmp$OLDCLAIM )
+test_tmp$OLDCLAIM <- as.numeric(test_tmp$OLDCLAIM)
+
+
+summary(test_tmp)
+#EDA on training data
+str(train_tmp)
+names(train_tmp)
+unique(train_tmp$JOB)   #unique values in the column
+table(train_tmp$JOB)  #unique values in table format in the column
+
+#impute missing values
+num_cols <- ncol(train_tmp)
+impute_cols <- which(colSums(apply(train_tmp,2,is.na)) != 0)
+
+for (i in (1:length(impute_cols))) {
+  print(c('Imputing: ', names(train_tmp[impute_cols[i]])))
+  trn_missing_idx <- which(is.na(train_tmp[,impute_cols[i]]) == T)
+  tst_missing_idx <- which(is.na(test_tmp[,impute_cols[i]]) == T)
+  
+  tree_model <- tree(train_tmp[,impute_cols[i]] ~., data=train_tmp[,(1:num_cols)])
+  train_tmp[trn_missing_idx,impute_cols[i]] <- 
+    predict(tree_model, newdata = train_tmp[trn_missing_idx,])
+  
+  train_tmp[,c(paste(names(train_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 0
+  train_tmp[trn_missing_idx,c(paste(names(train_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 1
+  
+  test_tmp[tst_missing_idx,impute_cols[i]] <- 
+    predict(tree_model, newdata = test_tmp[tst_missing_idx,])
+  
+  test_tmp[,c(paste(names(test_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 0
+  test_tmp[tst_missing_idx,c(paste(names(test_tmp[impute_cols[i]]),"_IMP_F",sep=""))] <- 1
+}
+train_tmp$TARGET_FLAG <- train$TARGET_FLAG
+
+# Variable Selection
+model <- glm(TARGET_FLAG ~ ., data=train_tmp, family="binomial")
+var_sel <- step(model, direction="both")
+
+#Predict for the Test set
+test$TARGET_FLAG <- predict.glm(model, newdata=test_tmp, type="response")
+
+sub <- test[,(1:2)]
+names(sub) <- c('INDEX','P_TARGET_FLAG')
+write.table(sub,"insurance_logistic.csv",sep=',',col.names=T,row.names=F)
+
