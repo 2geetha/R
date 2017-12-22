@@ -1,0 +1,74 @@
+require(rpart)
+require(flexmix)
+require(Metrics)
+data(car.test.frame)
+
+# Model 1 - linear model using continuous variables
+set.seed(123)
+fit.lm <- lm(Price~Mileage+Weight+Disp.+HP, data= car.test.frame) 
+summary(fit.lm)
+
+# Model 2 - clusterwise regression/latent class regression with k=1 
+set.seed(123)
+fit.clusReg_1 <- flexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, k=1)
+summary(fit.clusReg_1)
+parameters(fit.clusReg_1, component=1) #results same as linear model
+
+
+# Model 3 - clusterwise regression/latent class regression with 2 clusters 
+set.seed(123)
+fit.clusReg_2 <- flexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, k=2)
+summary(fit.clusReg_2)
+parameters(fit.clusReg_2, component =1 )
+parameters(fit.clusReg_2, component =2 )
+plot(fit.clusReg_2)
+fit.clusReg_2@size
+fit.clusReg_2@iter # numer of iterations to converge.
+fit.clusReg_2@prior
+
+table(car.test.frame$Type,fit.clusReg_2@cluster) # gets the classification of the variable into each cluster 
+plot(fit.clusReg_2)
+summary(refit(fit.clusReg_2))
+
+# Model 4 - clusterwise regression/latent class regression with 3 clusters 
+set.seed(123)
+fit.clusReg_3 <- flexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, k=3)
+summary(fit.clusReg_3)
+parameters(fit.clusReg_3)
+
+table(car.test.frame$Type,fit.clusReg_3@cluster) # gets the classification of the variable into each cluster 
+plot(fit.clusReg_3) # there is no peak at 1 - which confirms that the mixture component is not well separated
+summary(refit(fit.clusReg_3))
+
+# Model 5 - Automated model search with  min prioir prob= 0.2
+# model automatically chose k =2 
+set.seed(123)
+fit_auto <- flexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, k=3, 
+                    control= list(minprior=0.2))  
+plot(fit_auto)
+parameters(fit_auto)
+fit_auto@iter
+fit_auto@size
+fit_auto@k
+
+
+#Model 5 - fit multiple models for each values of k by defining the nrep parameter
+set.seed(123)
+fit_auto_rep <- stepFlexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, 
+                            control=list(verbose=0, minprior=0.2), k=1:5, nrep=5)
+summary(fit_auto_rep)
+sapply(fit_auto_rep@models, AIC)
+plot(sapply(fit_auto_rep@models, AIC), type="o")
+parameters(fit_auto_rep@models$`1`)
+parameters(fit_auto_rep@models$`2`)
+parameters(fit_auto_rep@models$`3`)
+parameters(fit_auto_rep@models$`4`)
+
+#Model 5A - fit multiple models for each values of k by defining the nrep parameter
+set.seed(123)
+fit_auto_rep_A <- stepFlexmix(Price~Mileage+Weight+Disp.+HP, data= car.test.frame, 
+                            control=list(verbose=0), k=1:5, nrep=5)
+summary(fit_auto_rep_A)
+sapply(fit_auto_rep_A@models, AIC)
+plot(sapply(fit_auto_rep_A@models, AIC), type="o")
+
