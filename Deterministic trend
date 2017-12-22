@@ -1,0 +1,61 @@
+library(forecast)
+library(fma)
+library(tseries)
+library(lmtest) # for durbin watson test
+
+ROK <- read.csv("ROk.csv", stringsAsFactors = F)
+ROK$time = seq(1, nrow(ROK))
+
+AdjClose<- ts(ROK[,"Adj.Close"])
+plot(AdjClose, main="Rockwell Automation : Daily Adj Close")
+
+ROKTrain <-ROK[1:400,]
+ROKTest <-  ROK[401:505,]
+
+plot( ROK$time,ROK$Adj.Close, type="o")
+############################################################
+
+# MODEL 1: Deterministic Trend Model : OLS linear trend 
+# y ->c, TIME
+fit1 = lm(Adj.Close~time, data = ROKTrain)
+summary(fit1)
+dwtest(fit1)
+tsdisplay(residuals(fit1))
+pred1 = predict(fit1,newdata = ROKTest)
+#plot(predict(fit1), residuals(fit1))
+# MODEL 2: Deterministic Trend Model : OLS quadratic trend 
+# y ->c, TIME, TIME ^2
+fit2 = lm(Adj.Close~poly(time,2), data = ROKTrain)
+summary(fit2)
+dwtest(fit2)
+tsdisplay(residuals(fit2))
+pred2 = predict(fit2,newdata = ROKTest)
+
+# MODEL 3: Deterministic Trend Model : exponential trend
+# lny ->c, TIME
+fit3 = lm(log(Adj.Close)~time, data = ROKTrain)
+summary(fit3)
+dwtest(fit3)
+tsdisplay(residuals(fit3))
+pred3 = predict(fit3,newdata = ROKTest)
+
+
+#plots
+plot(Adj.Close~time, ROK, type="l", Main="Rockwell Automation: Deterministic trend")
+lines(ROKTest$time,pred1, col="red")
+lines(ROKTest$time,pred2, col="green")
+lines(ROKTest$time,exp(pred3), col="blue") # converting logY to Y to plot
+legend('topleft',lwd=1,col=c('red','green','blue'), cex=.7,
+       legend=c("Linear Trend","Quadratic trend", "Log Linear Trend"))
+#lines(fitted(fit1), col="red")
+#lines(fitted(fit2), col="green")
+#lines(exp(fitted(fit3)), col="blue") # converting logY to Y to plot
+
+
+# Test Metrics
+testmetrics = rbind(accuracy(pred1,ROKTest[,"Adj.Close"]),
+                    accuracy(pred2,ROKTest[,"Adj.Close"]),
+                    accuracy(exp(pred3),ROKTest[,"Adj.Close"]))
+row.names(testmetrics) = c('linear','quadratic', 'log-linear')
+testmetrics
+  
