@@ -1,0 +1,373 @@
+ library(psych)
+library(dplyr)
+library(corrplot)
+# load the data
+charity <- read.csv("C:/data/charity.csv") # load the "charity.csv" file
+
+#
+summary(charity)
+glimpse(charity)
+describe(charity)
+describeBy(charity,group=charity$donr)
+quantile(charity$avhv,probs=c(.01,0.05,0.99,1.00))
+#box plots on numeric data
+boxplot(charity$avhv)
+#transform data
+charity.t <- charity
+
+summary(charity.t)
+boxplot(charity.t$avhv) # boxplots on numeric variables shows lot of outliers
+#use log transforms to control variable outliers
+charity.t$plow <- log(charity.t$plow+1) # only column with min 0
+charity.t[,c(11:13,15:21)] <- lapply(charity.t[,c(11:13,15:21)],log) # all these col have min as +ve value
+
+#EDA
+par(mfrow= c(4,3))
+hist(charity[,11]); hist(charity[,12]); hist(charity[,13]); hist(charity[,14]);
+hist(charity[,15]); hist(charity[,16]); hist(charity[,17]); hist(charity[,18]);
+hist(charity[,19]); hist(charity[,20]); hist(charity[,21])
+par(mfrow= c(4,3))
+hist(charity.t[,11]); hist(charity.t[,12]); hist(charity.t[,13]); hist(charity.t[,14]);
+hist(charity.t[,15]); hist(charity.t[,16]); hist(charity.t[,17]); hist(charity.t[,18]);
+hist(charity.t[,19]); hist(charity.t[,20]); hist(charity.t[,21])
+# set up data for analysis
+
+data.train <- charity.t[charity$part=="train",]
+describeBy(data.train[c(7,11:21)],group=data.train$donr)
+corrplot(mycor, method="number", number.digits = 2, number.cex = 0.7, tl.cex=0.7)
+library(corrplot)
+mycor=cor(data.train[,c(11:21,23)])
+x.train <- data.train[,2:21]
+c.train <- data.train[,22] # donr
+n.train.c <- length(c.train) # 3984
+y.train <- data.train[c.train==1,23] # damt for observations with donr=1
+n.train.y <- length(y.train) # 1995
+
+
+
+data.valid <- charity.t[charity$part=="valid",]
+x.valid <- data.valid[,2:21]
+c.valid <- data.valid[,22] # donr
+n.valid.c <- length(c.valid) # 2018
+y.valid <- data.valid[c.valid==1,23] # damt for observations with donr=1
+n.valid.y <- length(y.valid) # 999
+
+data.test <- charity.t[charity$part=="test",]
+n.test <- dim(data.test)[1] # 2007
+x.test <- data.test[,2:21]
+
+x.train.mean <- apply(x.train, 2, mean)
+x.train.sd <- apply(x.train, 2, sd)
+x.train.std <- t((t(x.train)-x.train.mean)/x.train.sd) # standardize to have zero mean and unit sd
+apply(x.train.std, 2, mean) # check zero mean
+apply(x.train.std, 2, sd) # check unit sd
+data.train.std.c <- data.frame(x.train.std, donr=c.train) # to classify donr
+data.train.std.y <- data.frame(x.train.std[c.train==1,], damt=y.train) # to predict damt when donr=1
+
+x.valid.std <- t((t(x.valid)-x.train.mean)/x.train.sd) # standardize using training mean and sd
+data.valid.std.c <- data.frame(x.valid.std, donr=c.valid) # to classify donr
+data.valid.std.y <- data.frame(x.valid.std[c.valid==1,], damt=y.valid) # to predict damt when donr=1
+
+x.test.std <- t((t(x.test)-x.train.mean)/x.train.sd) # standardize using training mean and sd
+data.test.std <- data.frame(x.test.std)
+
+######################################################
+# CLASSIFICATION MODELING #
+######################################################
+data.train.clas = data.train[,c(-1,-23,-24)]
+data.train.clas[,c(1:5,7:9,21)] <- lapply(data.train.clas[,c(1:5,7:9,21)],as.factor) # convert to factor variables
+data.train.clas[,c(6,10:20)] = data.train.std.c[,c(6,10:20)]
+
+num_data <- data.train.clas[, sapply(data.train.clas, is.numeric)]
+cor(num_data)
+data.valid.clas = data.valid[,c(-1,-23,-24)]
+data.valid.clas[,c(1:5,7:9,21)] <- lapply(data.valid.clas[,c(1:5,7:9,21)],as.factor) # convert to factor variables
+data.valid.clas[,c(6,10:20)] = data.valid.std.c[,c(6,10:20)]
+
+data.test.clas = data.test[,c(-1,-22,-23,-24)]
+data.test.clas[,c(1:5,7:9)] <- lapply(data.test.clas[,c(1:5,7:9)],as.factor) # convert to factor variables
+data.test.clas[,c(6,10:20)] = data.test.std[,c(6,10:20)]
+
+
+######LDA######
+library(MASS)
+#plot(x.train[10:20], gap=0, bg=c("red","green")[data.train$donr],pch=21)
+model.lda1 <- lda(donr ~ reg1 + reg2 + reg3 + reg4 + home + +genf+chld + hinc +  wrat + avhv 
+                  +avhv:plow+plow + npro + +tgif+lgif + rgif + tdon + tlag+agif, data.train.clas) 
+
+post.valid.lda1 <- predict(model.lda1, data.valid.clas)$posterior[,2] # n.valid.c post probs
+
+# calculate ordered profit function using average donation = $14.50 and mailing cost = $2
+
+profit.lda1 <- cumsum(14.5*c.valid[order(post.valid.lda1, decreasing=T)]-2)
+plot(profit.lda1) # see how profits change as more mailings are made
+n.mail.valid <- which.max(profit.lda1) # number of mailings that maximizes profits
+c(n.mail.valid, max(profit.lda1)) # report number of mailings and maximum profit
+# 1329.0 11624.5
+
+cutoff.lda1 <- sort(post.valid.lda1, decreasing=T)[n.mail.valid+1] # set cutoff based on n.mail.valid
+chat.valid.lda1 <- ifelse(post.valid.lda1>cutoff.lda1, 1, 0) # mail to everyone above the cutoff
+table(chat.valid.lda1, c.valid)
+
+#####logistic regression#####
+
+model.log1 <- glm(donr ~reg1 + reg2 + reg3 +reg4 + home + chld + hinc +  wrat + avhv 
+                  +avhv:plow+plow + npro + +tgif + rgif  +lgif+tdon + tlag+agif, data.train.clas, family=binomial("logit"))
+
+post.valid.log1 <- predict(model.log1, data.valid.clas, type="response") # n.valid post probs
+
+# calculate ordered profit function using average donation = $14.50 and mailing cost = $2
+
+profit.log1 <- cumsum(14.5*c.valid[order(post.valid.log1, decreasing=T)]-2)
+plot(profit.log1) # see how profits change as more mailings are made
+n.mail.valid <- which.max(profit.log1) # number of mailings that maximizes profits
+
+c(n.mail.valid, max(profit.log1)) # report number of mailings and maximum profit
+# 1291.0 11642.5
+
+cutoff.log1 <- sort(post.valid.log1, decreasing=T)[n.mail.valid+1] # set cutoff based on n.mail.valid
+chat.valid.log1 <- ifelse(post.valid.log1>cutoff.log1, 1, 0) # mail to everyone above the cutoff
+table(chat.valid.log1, c.valid) # classification table
+
+######QDA######
+model.qda1 <- qda(donr ~ reg1 + reg2 + reg3 + reg4 + home +genf++ chld + hinc + wrat + avhv 
+                  +avhv:plow+plow + npro + +tgif + rgif + lgif+tdon + tlag+agif, data.train.clas) 
+
+post.valid.qda1 <- predict(model.qda1, data.valid.clas)$posterior[,2] # n.valid.c post probs
+
+# calculate ordered profit function using average donation = $14.50 and mailing cost = $2
+
+profit.qda1 <- cumsum(14.5*c.valid[order(post.valid.qda1, decreasing=T)]-2)
+plot(profit.qda1) # see how profits change as more mailings are made
+n.mail.valid <- which.max(profit.qda1) # number of mailings that maximizes profits
+c(n.mail.valid, max(profit.qda1)) # report number of mailings and maximum profit
+
+cutoff.qda1 <- sort(post.valid.qda1, decreasing=T)[n.mail.valid+1] # set cutoff based on n.mail.valid
+chat.valid.qda1 <- ifelse(post.valid.qda1>cutoff.qda1, 1, 0) # mail to everyone above the cutoff
+table(chat.valid.qda1, c.valid)
+
+######KNN######
+library(class)
+set.seed(123)
+pred.knn1 <- knn(data.train.clas[-21],data.valid.clas[-21], data.train.clas$donr,k=7) 
+table(pred.knn1, c.valid)
+
+######Classification trees######
+library(tree)
+tree.donr= tree(donr~ .,data=data.train.clas)
+summary(tree.donr)
+plot(tree.donr)
+text(tree.donr, pretty=0)
+tree.donr
+set.seed(313)
+cv.donr= cv.tree(tree.donr, FUN=prune.misclass)
+cv.donr
+plot(cv.donr) # best @ 13
+plot(cv.donr$size,cv.donr$k,type="b")
+plot(cv.donr$k,cv.donr$dev,type="b")
+prune.donr= prune.misclass(tree.donr, best=13)
+plot(prune.donr);text(prune.donr, pretty=0)
+tree.pred = predict(prune.donr, data.valid.clas, type="class")
+with(data.valid.clas, table(tree.pred, c.valid))
+
+##### Bagging #####
+library(randomForest)
+set.seed(21)
+bag.charity = randomForest(donr~., data=data.train.clas, mtry=20, importance=T)
+pred.bag = predict(bag.charity, newdata = data.valid.clas)
+table(pred.bag, c.valid)
+
+##### RandomForest #####
+set.seed(21)
+rf.charity = randomForest(donr~., data=data.train.clas, mtry=5, importance=T) # sqrt(p) for clas mtry
+pred.rf = predict(rf.charity, newdata = data.valid.clas)
+table(pred.rf, c.valid)
+importance(rf.charity)
+varImpPlot(rf.charity)
+
+########## test ##############
+# select model.log1 since it has maximum profit in the validation sample
+
+post.test <- predict(model.log1, data.test.clas, type="response") # post probs for test data
+
+# Oversampling adjustment for calculating number of mailings for test set
+
+n.mail.valid <- which.max(profit.log1)
+tr.rate <- .1 # typical response rate is .1
+vr.rate <- .5 # whereas validation response rate is .5
+adj.test.1 <- (n.mail.valid/n.valid.c)/(vr.rate/tr.rate) # adjustment for mail yes
+adj.test.0 <- ((n.valid.c-n.mail.valid)/n.valid.c)/((1-vr.rate)/(1-tr.rate)) # adjustment for mail no
+adj.test <- adj.test.1/(adj.test.1+adj.test.0) # scale into a proportion
+n.mail.test <- round(n.test*adj.test, 0) # calculate number of mailings for test set
+
+cutoff.test <- sort(post.test, decreasing=T)[n.mail.test+1] # set cutoff based on n.mail.test
+chat.test <- ifelse(post.test>cutoff.test, 1, 0) # mail to everyone above the cutoff
+table(chat.test)
+
+
+######################################################
+# PREDICTION MODELING - variable DAMT(donation amt) #
+######################################################
+#select data with donars only
+data.train.pred = cbind(data.train.clas[data.train.clas$donr==1,], damt=y.train)
+data.train.pred.in= data.train.pred[,-21]
+data.valid.pred = cbind(data.valid.clas[data.valid.clas$donr==1,], damt=y.valid)
+data.valid.pred.in= data.valid.pred[,-21]
+data.test.pred= cbind(data.test.clas, damt=0)
+
+##### OLS Regression #####
+#avhv:plow - adds only the interaction terms
+#avhv*plow includes avhv, plow and the interaction term
+model.ls1 <- lm(damt ~ reg1 + reg2 + reg3 +reg4 + home + chld + hinc +  wrat  
+                +avhv*plow +rgif +lgif +tgif  +agif, data=data.train.pred.in)
+
+pred.valid.ls1 <- predict(model.ls1, newdata = data.valid.pred.in) # validation predictions
+mean((y.valid - pred.valid.ls1)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.ls1)^2)/sqrt(n.valid.y) # std error
+
+##### Best subset selection #####
+library(leaps)
+model.sub1 <- regsubsets(damt ~ ., data=data.train.pred.in, nvmax = 30)
+sub.summary=summary(model.sub1)
+coef(model.sub1, 30)
+test_matrix= model.matrix(damt~., data.valid.pred.in)
+val_errors=rep(NA,30)
+sd_errors=rep(NA,30)
+for(i in 1:30){
+  coefi= coef(model.sub1, i)
+  pred = test_matrix[,names(coefi)]%*%coefi  # matrix multiplication
+  val_errors[i]= mean((y.valid-pred)^2)
+  sd_errors[i] = sd((y.valid - pred)^2)/sqrt(n.valid.y)
+}
+val_errors[which.min(val_errors)]
+sd_errors[which.min(val_errors)]
+which.min(val_errors)
+coef(model.sub1, 23)
+##### PCR #####
+library(pls)
+
+# data without standardizing/scaling
+data.train.pcr = cbind(data.train[data.train.clas$donr==1,])
+data.train.pcr[,c(2:6,8:10)] <- lapply(data.train.pcr[,c(2:6,8:10)],as.factor) # convert to factor variables
+data.train.pcr.in= data.train.pcr[,-c(1,22,24)]
+data.valid.pcr = cbind(data.valid[data.valid.clas$donr==1,])
+data.valid.pcr[,c(2:6,8:10)] <- lapply(data.valid.pcr[,c(2:6,8:10)],as.factor) # convert to factor variables
+data.valid.pcr.in= data.valid.pcr[,-c(1,22,24)]
+data.test.pcr= data.test[,-c(1,22,24)]
+data.test.pcr.in[,c(2:6,8:10)] <- lapply(data.test.pcr[,c(2:6,8:10)],as.factor) # convert to factor variables
+
+set.seed(3)
+model.pcr = pcr(damt~., data=data.train.pcr.in, scale=T, validation="CV") # 10- fold CV
+summary(model.pcr)
+validationplot(model.pcr,val.type = "MSEP") # choosing 24 comp 
+pred.valid.pcr = predict(model.pcr,data.valid.pcr.in, ncomp = 24)
+mean((y.valid - pred.valid.pcr)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.pcr)^2)/sqrt(n.valid.y) # std error
+
+##### PLS #####
+
+set.seed(1)
+model.pls = plsr(damt~., data=data.train.pcr.in, scale=T, validation="CV") # 10- fold CV
+summary(model.pls)
+validationplot(model.pls,val.type = "MSEP") # choosing 12 comp # CV erros is low 
+pred.valid.pls = predict(model.pls,data.valid.pcr.in, ncomp = 12)
+mean((y.valid - pred.valid.pls)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.pls)^2)/sqrt(n.valid.y) # std error
+
+##### Ridge Regression #####
+# default standardize is TRUE in glmnet
+library(glmnet)
+set.seed(1)
+grid= 10^ seq(10,-2,length=100)
+x= model.matrix(damt~., data=data.train.pcr.in)
+x.valid.matrix= model.matrix(damt~., data=data.valid.pcr.in)
+model.rid=glmnet(x,y.train, alpha=0, lambda = grid, thresh = 1e-12)
+#lambda=0
+pred.valid.rid = predict(model.rid,s= 0 ,newx=x.valid.matrix )
+mean((y.valid - pred.valid.rid)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.rid)^2)/sqrt(n.valid.y) 
+#lambda=5
+pred.valid.rid = predict(model.rid, s=5, newx=x.valid.matrix )
+mean((y.valid - pred.valid.rid)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.rid)^2)/sqrt(n.valid.y) # std error
+# MSE is reduced with increase in lambda
+
+#find the best lambda and refit
+set.seed(1)
+cv.out= cv.glmnet(x,y.train,alpha=0)
+par(mfrow=c(1,1))
+plot(cv.out)
+plot(model.rid)
+bestlam= cv.out$lambda.min
+bestlam
+pred.valid.bestlam= predict(model.rid,s=bestlam, newx=x.valid.matrix)
+mean((y.valid - pred.valid.bestlam)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.bestlam)^2)/sqrt(n.valid.y) # std error
+predict(model.rid,type="coefficients", s=bestlam)[1:35,]
+l=glmnet(x,y.train, alpha=0)
+predict(l, type="coefficients",s=0)[1:20,]
+
+##### lasso #####
+set.seed(1)
+model.lasso = glmnet(x,y.train,alpha=1, lambda = grid)
+plot(model.lasso)
+set.seed(1)
+cv.out= cv.glmnet(x,y.train,alpha=1)
+plot(cv.out)
+bestlam= cv.out$lambda.min
+bestlam
+pred.valid.lasso= predict(model.lasso,s=bestlam, newx=x.valid.matrix)
+mean((y.valid - pred.valid.lasso)^2) # mean prediction error (MSE)
+sd((y.valid - pred.valid.lasso)^2)/sqrt(n.valid.y) # std error
+lasso.coef=predict(model.lasso,type="coefficients", s=bestlam)[1:30,]
+lasso.coef
+lasso.coef[lasso.coef !=0]
+
+##### Regression trees #####
+library(MASS)
+set.seed(1)
+
+model.regtree= tree(damt~.,data.train.pred.in)
+summary(model.regtree)
+plot(model.regtree); text(model.regtree, pretty=0)
+cv.regtree= cv.tree(model.regtree)
+par(mfrow=c(1,2))
+plot(cv.regtree$size,cv.regtree$k,type="b") # b - both points and line
+plot(cv.regtree) # best @ 11
+
+pred.valid.regtree = predict(model.regtree, data.valid.pred.in)
+plot(pred.valid.regtree,y.valid)
+abline(0,1)
+mean((pred.valid.regtree-y.valid)^2) # 
+sd((y.valid - pred.valid.regtree)^2)/sqrt(n.valid.y) # std error
+
+##### Random Forest #####
+set.seed(21)
+rf.reg = randomForest(damt~.,data.train.pred.in, mtry=7, importance=T) # p/3 mtry
+pred.valid.rf = predict(rf.reg, newdata = data.valid.pred.in)
+mean((pred.valid.rf-y.valid)^2) # 
+sd((y.valid - pred.valid.rf)^2)/sqrt(n.valid.y) # std error
+varImpPlot(rf.reg)
+
+# select model.ls1 since it has minimum mean prediction error in the validation sample
+
+yhat.test <- predict(model.ls1, newdata = data.test.pred) # test predictions
+
+#test_mat= model.matrix(damt~., data.test.pred)
+#coefi= coef(model.sub1, i=23) # min of cv errors (selection group 23)
+#yhat.test = test_mat[,names(coefi)]%*%coefi  # matrix multiplication
+  
+######################################################
+# FINAL RESULTS#
+######################################################
+# Save final results for both classification and regression
+
+length(chat.test) # check length = 2007
+length(yhat.test) # check length = 2007
+chat.test[1:10] # check this consists of 0s and 1s
+yhat.test[1:10] # check this consists of plausible predictions of damt
+
+ip <- data.frame(chat=chat.test, yhat=yhat.test) # data frame with two variables: chat and yhat
+write.csv(ip,"C:/out/results.csv", row.names=FALSE)
+
+
