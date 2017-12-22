@@ -1,0 +1,66 @@
+library(forecast)
+library(fma)
+library(tseries)
+library(fGarch)
+ROK <- read.csv("ROk.csv", stringsAsFactors = F)
+
+AdjClose<- ts(ROK[,"Adj.Close"])
+head(AdjClose)
+
+#adopted from 
+#https://talksonmarkets.files.wordpress.com/2012/09/time-series-analysis-with-arima-e28093-arch013.pdf
+
+# train and test sets (6 months data as test : 6* 21 days = 126)
+ROKTrain <-window(AdjClose,end=380)
+ROKTest <-  window(AdjClose,start=381)
+par(mfrow=c(2,2))
+plot(ROKTrain, main="AdjClose")
+diffTrain = diff(ROKTrain)
+plot(diffTrain, main="Diff AdjClose")
+logTrain = log(ROKTrain)
+plot(logTrain, main="Log AdjClose")
+diffLogTrain = diff(logTrain)
+plot(diffLogTrain, main="Diff Log AdjClose")
+
+#arima
+#use autoarima to find the order
+arimaFit =auto.arima(logTrain)  #ARIMA(0,1,0) with drift
+res= residuals(arimaFit)
+squared.res = res^2
+tsdisplay(squared.res)
+
+
+arch01=garch(res, order=c(0,1),trace=F)
+#loglik01=logLik(arch01)
+summary(arch01)
+
+forecastArima=forecast::forecast(arimaFit,125) 
+plot(forecastArima)
+
+ht.arch01=arch01$fit[,1]^2 #use 1st column of fit  to compute variances
+plot(ht.arch01,main='Conditional variances')
+sum(is.na(ht.arch01)) # there is 1 NA value # the first one
+ht.arch01[is.na(ht.arch01)] = 0  # replace NA to Zero
+
+
+#forecast ARIMA-ARCH
+#fcast=forecastArima$mean - p[,1]
+
+
+fit=arimaFit$fitted
+low=fit-1.96*sqrt(ht.arch01) # 95% interval
+high=fit+1.96*sqrt(ht.arch01)
+plot(logTrain,main='Log AdjClose,Low,High')
+lines(forecastArima$mean)
+lines(low,col='red')
+lines(high,col='blue')
+legend("topleft",lwd=1,col=c('blue','black', "red"),legend=c("High","Actual","Low"))
+par(mfrow=c(1,2))
+archres=res/sqrt(ht.arch01)
+archres[1] = res[1] # hardcoding the first value
+qqnorm(archres,main='ARIMA-ARCH Residuals')
+qqline(archres)
+
+qqnorm(res,main='ARIMA Residuals')
+qqline(res)
+
