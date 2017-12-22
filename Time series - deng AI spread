@@ -1,0 +1,187 @@
+ library(forecast)
+library(dplyr)
+library(corrplot)
+library(fpp)
+library(caret)
+library(fGarch)
+
+train_features=read.csv("C:/data/dengue_features_train.csv")
+train_labels=read.csv("C:/data/dengue_labels_train.csv")
+
+test_features=read.csv("C:/data/dengue_features_test.csv")
+sub_fmt=read.csv("C:/data/submission_format.csv")
+
+#EDA
+#summary, str, names, dim
+glimpse(train_labels)
+summary(train_labels)
+dim(train_labels)
+
+train <- merge(train_features,train_labels, by=c("city","year","weekofyear"),sort = F)
+train_sj <- subset(train, city=="sj")
+train_iq= train[937:nrow(train),]
+
+tsdisplay(train_iq$total_cases)
+tsdisplay(train_sj$total_cases)
+
+test_sj <- subset(test_features, city=="sj")
+test_iq= subset(test_features, city=="iq")
+
+################################################
+                    #functions
+################################################
+#outlier treatment
+Outlier_1_99 = function(datCol){
+  pertl = quantile(datCol, c(0.01,0.99), na.rm = T)
+  datCol[datCol<pertl[1]] = pertl[1]
+  datCol[datCol>pertl[2]] = pertl[2]
+  return (datCol)
+}
+
+
+################################################
+# city = sj (San Juan, Puerto Rico)
+################################################
+
+for(i in 5:(ncol(train_sj)-1)){
+  train_sj[,i]= Outlier_1_99(train_sj[,i]) # outlier treatment cols: 5-24
+  m =mean(train_sj[,i], na.rm = T)
+  train_sj[is.na(train_sj[,i]), i] <- m # missing values impute
+  
+  test_sj[is.na(test_sj[,i]), i] <- m # impute test data missing values with train mean
+}
+summary(train_sj)
+
+mycor=cor(train_sj[,5:ncol(train_sj)])
+corrplot(mycor, method="number", number.digits = 1, number.cex = 0.7, tl.cex=0.7)
+ts_sj_cases = ts(train_sj$total_cases, frequency = 52, start=c(1990,04,30))
+#plot(ts_sj_cases);acf(ts_sj_cases;pacf(ts_sj_cases)
+tsdisplay(ts_sj_cases)
+plot(decompose(ts_sj_cases))
+
+#model 1 - ARIMA with identified columns as ext regressors
+xregfit_sj_1    <- cbind(train_sj[,c(5:9,20:24)])
+xregfcast_sj_1  <- cbind(test_sj[,c(5:9,20:24)])
+fitAutoArima_sj_1 = auto.arima(ts_sj_cases, xreg=xregfit_sj_1)
+forecastArima_sj_1 <- forecast(fitAutoArima_sj_1, xreg=xregfcast_sj_1)
+
+
+#model 2 - ARIMA with principal components as ext regressors
+pca_sj =prcomp(train_sj[,5:24], scale. = T)
+screeplot(pca_sj)
+plot(pca_sj,type="line",cex.lab=1.5, cex.main=1.5)
+
+fitAutoArima_sj_2 = auto.arima(ts_sj_cases, xreg=pca_sj$x[,1:7])
+forecastArima_sj_2 <- forecast(fitAutoArima_sj_2, xreg=pca_sj$x[,1:7])
+
+
+#model 3 - Neural Network with regressors
+fitNN_sj_3  <- avNNet(ts_sj_cases ~ndvi_ne:precipitation_amt_mm+station_avg_temp_c:station_precip_mm, 
+                      data=train_sj, repeats=25, size=9, decay=0.1,linout=TRUE)
+forecastNN_sj_3 <- predict(fitNN_sj_3)
+
+#model 4 - Neural Network with princomp
+df_princomp_sj = data.frame(ts_sj_cases,pca_sj$x[,1:7] )
+fitNN_sj_4  <- avNNet(ts_sj_cases ~., data=df_princomp_sj, repeats=25, size=6, decay=0.1,linout=TRUE)
+forecastNN_sj_4 <- predict(fitNN_sj_4)
+
+#model 5 - GARCH fit residuals from model 2
+
+res_sj5 = garchFit(~garch(1,1), data= fitAutoArima_sj_2$residuals)
+h_sj=forecast(res_sj5@h.t, h=260)
+dev_sj= sqrt(h_sj$mean)
+val_sj = forecastArima_sj_2$mean[1:260]-dev
+plot(ts_sj_cases)
+plot(val_sj, col="blue")
+
+#model 6- ets
+forecastETS_sj <- stlf(ts_sj_cases, s.window = 7, h=260)
+
+#plot
+plot(ts_sj_cases, main="City San Juan")
+lines(forecastArima_sj_1$mean, col="blue")
+lines(forecastArima_sj_2$mean, col="red")
+lines(ts(forecastNN_sj_3, frequency = 52, start = c(2008, 4,29)), col="green")
+lines(ts(forecastNN_sj_4, frequency = 52, start = c(2008, 4,29)), col="magenta")
+lines(ts(val_sj, frequency = 52, start = c(2008, 4,29)), col="cyan")
+lines(forecastETS_sj$mean, col="yellow")
+legend("topleft",lwd=1,col=c('blue','red', "green", "magenta", "cyan","yellow"),
+       legend=c("ARIMA-xreg","ARIMA-PrinComp","NN-reg", "NN-PrinComp","ARIMA-GARCH", "ETS(A, Ad, N"))
+
+################################################
+# city = iq (Iquitos, Peru)
+################################################
+
+for(i in 5:(ncol(train_iq)-1)){
+  train_iq[,i]= Outlier_1_99(train_iq[,i])
+  m=mean(train_iq[,i], na.rm = T)
+  train_iq[is.na(train_iq[,i]), i] <- m
+  test_iq[is.na(test_iq[,i]), i] <- m
+  
+}
+summary(train_iq)
+
+mycor_iq=cor(train_iq[,5:ncol(train_iq)])
+corrplot(mycor_iq, method="number", number.digits = 1, number.cex = 0.6, tl.cex=0.8)
+ts_iq_cases = ts(train_iq$total_cases, frequency = 52, start=c(2000,07,01))
+
+tsdisplay(ts_iq_cases)
+plot(decompose(ts_iq_cases))
+
+#model 1 - ARIMA with identified columns as ext regressors
+xregfit_iq_1    <- cbind(train_iq[,c(5:9,20:24)])
+xregfcast_iq_1  <- cbind(test_iq[,c(5:9,20:24)])
+fitAutoArima_iq_1 = auto.arima(ts_iq_cases, xreg=xregfit_iq_1)
+forecastArima_iq_1 <- forecast(fitAutoArima_iq_1, xreg=xregfcast_iq_1)
+
+#model 2 - ARIMA with principal components as ext regressors
+pca_iq =prcomp(train_iq[,5:24], scale. = T)
+screeplot(pca_iq)
+plot(pca_iq,type="line",cex.lab=1.5, cex.main=1.5)
+
+fitAutoArima_iq_2 = auto.arima(ts_iq_cases, xreg=pca_iq$x[,1:6])
+forecastArima_iq_2 <- forecast(fitAutoArima_iq_2,xreg=pca_iq$x[,1:6])
+
+
+#model 3 - Neural Network with regressors
+fitNN_iq_3  <- avNNet(ts_iq_cases ~ndvi_ne:precipitation_amt_mm+station_avg_temp_c:station_precip_mm, 
+                      data=train_iq, repeats=25, size=9, decay=0.1,linout=TRUE)
+forecastNN_iq_3 <- predict(fitNN_iq_3)
+
+#model 4 - Neural Network with princomp
+df_princomp_iq = data.frame(ts_iq_cases,pca_iq$x[,1:6] )
+fitNN_iq_4  <- avNNet(ts_iq_cases ~., data=df_princomp_iq, repeats=25, size=5, decay=0.1,linout=TRUE)
+forecastNN_iq_4 <- predict(fitNN_iq_4)
+
+#model 5 - GARCH fit residuals from model 2
+
+res_iq5 = garchFit(~garch(1,1), data= fitAutoArima_iq_2$residuals)
+h_iq=forecast(res_iq5@h.t, h=156)
+dev_iq= sqrt(h_iq$mean)
+val_iq = forecastArima_iq_2$mean[1:156]-dev_iq
+
+#model 6- ets
+forecastETS_iq <- stlf(ts_iq_cases, s.window = 7, h=156)
+
+#plot
+plot(ts_iq_cases, main="City Iquotis")
+lines(forecastArima_iq_1$mean, col="blue")
+lines(forecastArima_iq_2$mean, col="red")
+lines(ts(forecastNN_iq_3, frequency = 52, start = c(2010, 7,02)), col="green")
+lines(ts(forecastNN_iq_4, frequency = 52, start = c(2010, 7,02)), col="magenta")
+lines(ts(val_iq, frequency = 52, start = c(2010, 7,02)), col="cyan")
+lines(forecastETS_iq$mean, col="yellow")
+legend("topleft",lwd=1,col=c('blue','red', "green", "magenta", "cyan","yellow"),
+       legend=c("ARIMA-xreg","ARIMA-PrinComp","NN-reg", "NN-PrinComp","ARIMA-GARCH", "ETS(A, N, N)"))
+
+
+
+################################################
+# submission
+################################################
+# model 1
+sj_1 = cbind(test_sj[,1:3],total_cases=floor(as.numeric(forecastArima_sj_1$mean)) )
+iq_1 = cbind(test_iq[,1:3],total_cases=floor(as.numeric(forecastArima_iq_1$mean)))
+submit_1 = rbind(sj_1,iq_1)
+write.csv(submit_1,"C://submit1.csv", row.names=FALSE)
+
