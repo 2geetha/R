@@ -1,0 +1,93 @@
+require(caret)
+data(GermanCredit)
+dataCredit = GermanCredit[-c(4:7,9:19,31:62)]
+
+############################################################################################
+                                      #FUNCTIONS
+############################################################################################
+#compute R square train to compare
+RsquareTRAIN= function(fit,y){
+  trainSST = sum((y-mean(y))^2)
+  trainSSR = sum((fitted(fit)-mean(y))^2)
+  trainSSE = sum(residuals(fit)^2)
+  1- trainSSE/trainSST
+  return(trainSSR/trainSST)
+}
+
+#compute R square test
+RsquareTEST= function(fit,y,yhat){
+  SST = sum((y-mean(y))^2)
+  SSR = sum((yhat-mean(y))^2)
+  SSE = sum((y- yhat)^2)
+  return(SSR/SST)# testSST-(testSSR+testSSE) is not negligible as in train dataset
+}
+############################################################################################
+                                    #MuTaTe - linear regression
+############################################################################################
+
+iterations=1:1000
+trainRsq = c()
+testRsq = c()
+trainCoef=data.frame()
+
+for(i in iterations){
+  sampletrain = sample(nrow(dataCredit), round(0.638*nrow(dataCredit)), replace = F) #638/362 (train/test)
+  train= dataCredit[sampletrain,]
+  test = dataCredit[-sampletrain,]
+  fit.lm= lm(Amount~ ., data =train )
+  trainRsq[i] = summary(fit.lm)$r.squared
+  trainCoef= rbind(trainCoef,round(coef(fit.lm),2))
+  test.pred= predict(fit.lm,test)
+  testRsq[i]= RsquareTEST(fit.lm,test$Amount,test.pred)
+  colnames(trainCoef)= names(coef(fit.lm))
+  
+}
+#plots
+par(mfrow=c(1,1))
+hist(trainRsq)
+hist(testRsq)
+# % fall Rsquare
+fallRsq = (testRsq-trainRsq)/trainRsq
+hist(fallRsq)
+
+# distribution plot for coefficients (total of 15 coeffs)
+par(mfrow=c(3,5))
+for(p in 1:ncol(trainCoef)){
+  if(!any(is.na(trainCoef[,p])) ){
+    hist(trainCoef[,p],xlab=colnames(trainCoef[p]), main="")
+  }
+}
+
+
+# find 95% CI
+#pick 2.5% and 97.5% th value and find the range
+pos25 = round(0.025*nrow(trainCoef) )
+pos975 = round(0.975*nrow(trainCoef) )
+rangeCI = data.frame()
+meanBeta = c()
+for(p in 1:ncol(trainCoef)){
+  sortData =sort(trainCoef[,p])
+  rangeCI = rbind(rangeCI,c(sortData[pos25], sortData[pos975]))
+  meanBeta[p] = mean(trainCoef[,p]) # mean of coeffts from MuTaTe
+}
+row.names(rangeCI) <- names(trainCoef)
+#rangeCI = cbind(rangeCI,abs(rangeCI[,1]-rangeCI[,2]))
+colnames(rangeCI) = c("2.5%","97.5%")
+
+#####################################################################
+        #Original linear regression of all data points
+#####################################################################
+fit.lm.orig= lm(Amount~ ., data =dataCredit )
+
+#compare CI from original and MuTaTe
+confint(fit.lm.orig)
+rangeCI
+
+#compare the coefficients
+meanBeta <- meanBeta[!is.na(meanBeta)] # remove NA's from Beta coeffs
+coeffs=data.frame()
+coeffs=rbind(coeffs,summary(fit.lm.orig)$coefficients[,1]) # row 1 coeffts of orig fit
+coeffs = rbind(coeffs,meanBeta) # row 2 coeffs of mean coeffs from MuTaTe fit
+colnames(coeffs)= rownames(summary(fit.lm.orig)$coefficients)
+rownames(coeffs) = c("Orig.fit","MuTaTe.fit")
+coeffs
