@@ -1,0 +1,72 @@
+library(forecast)
+library(fma)
+library(tseries)
+
+#load ts components
+ROK <- read.csv("ROk_5Y.csv", stringsAsFactors = F)
+AdjClose_ROK<- ts(as.numeric(ROK[-1,"Adj.Close"]),frequency = 12, start=c(2012,11))
+head(AdjClose_ROK)
+
+Siemens <- read.csv("SMAWF_5Y.csv", stringsAsFactors = F)
+AdjClose_Siemens<- ts(as.numeric(Siemens[-1,"Adj.Close"]), frequency = 12, start=c(2012,11))
+head(AdjClose_Siemens)
+
+#plot timeseries 
+par(mfrow=c(1,2))
+plot(AdjClose_Siemens, main="Siemens Stock")
+plot(AdjClose_ROK, main="Rockwell Automation Stock")
+cor(AdjClose_ROK,AdjClose_Siemens)
+
+stocks = cbind(AdjClose_ROK,AdjClose_Siemens) # combine stocks to one dataset
+
+#90/10 train/test
+Train <-window(stocks,end=c(2017,4))
+Test <-  window(stocks,start=c(2017,5))
+
+#VAR
+library(vars)
+VARselect(Train, lag.max=8, type="const")$selection # to 
+var <-VAR(Train,p=1)
+serial.test(var, lags.pt=10, type="PT.asymptotic")
+summary(var)
+
+#forecast using VAR for Rockwell Automation stock
+fcst <- forecast(var, h=6)
+metric_ROKVAR= accuracy(fcst$forecast$AdjClose_ROK, Test[,1])
+metric_SiemensVAR= accuracy(fcst$forecast$AdjClose_Siemens, Test[,2])
+
+#auto arima ROK
+fitAutoArima <- auto.arima(Train[,1])
+summary(fitAutoArima)
+arima_fcast = forecast(fitAutoArima,h=6)
+metric_ROKArima =accuracy(arima_fcast, Test[,1])
+
+#plot forecast ROK
+par(mfrow=c(1,1))
+plot(AdjClose_ROK, xlab="year", main= "Forecast ROK")
+lines(fcst$forecast$AdjClose_ROK$mean, col="red")
+lines(arima_fcast$mean, col="green")
+legend("topleft",lwd=1,col=c('green', "red"),legend=c("ARIMA(0,1,0)","VAR(1)"))
+
+
+#auto arima Siemens
+fitAutoArima1 <- auto.arima(Train[,2])
+summary(fitAutoArima1)
+arima_fcast1 = forecast(fitAutoArima1,h=6)
+metric_SiemensArima=accuracy(arima_fcast1, Test[,2])
+
+#plot forecast Siemens
+par(mfrow=c(1,1))
+plot(AdjClose_Siemens, xlab="year", main= "Forecast Siemens")
+lines(fcst$forecast$AdjClose_Siemens$mean, col="red")
+lines(arima_fcast1$mean, col="green")
+legend("topleft",lwd=1,col=c('green', "red"),legend=c("ARIMA(1,0,0)","VAR(1)"))
+
+#test metrics comparison
+test_metrics = rbind(c(metric_ROKVAR[2,2],metric_SiemensVAR[2,2]) , c(metric_ROKArima[2,2],metric_SiemensArima[2,2]))
+                     
+rownames(test_metrics) = c("VAR", "ARIMA")
+colnames(test_metrics) = c("ROK","Siemens")
+test_metrics
+
+
